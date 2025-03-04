@@ -1,0 +1,27 @@
+﻿名称,标签,description,类型,默认值,可选值
+osd_op_queue,Scheduling,This sets the type of queue to be used for prioritizing ops within each OSD. ,str,mclock_scheduler,"wpq, mclock_scheduler, debug_random"
+osd_mclock_max_capacity_iops_ssd,IO,Max random write IOPS capacity (at 4 KiB block size) to consider per OSD (for solid state media),float,21500,dynamic
+osd_mclock_max_sequential_bandwidth_ssd,IO,The maximum sequential bandwidth in bytes/second to consider for the OSD (for solid state media),size,1200Mi,dynamic
+osd_op_num_threads_per_shard_ssd,IO,The number of worker threads spawned per OSD shard for a given OSD (for solid state media),int,2,dynamic
+osd_op_num_shards_ssd,IO,the number of shards allocated for a given OSD (for solid state media).,int,8,dynamic
+bluestore_cache_size_ssd,Memory,The default amount of memory BlueStore will use for its cache when backed by an SSD.,size,3072Mi,dynamic
+bluestore_cache_autotune,Memory,Automatically tune the space ratios assigned to various BlueStore caches while respecting minimum values.,bool,TRUE,"TRUE, FALSE"
+bluestore_cache_autotune_interval,Memory,The number of seconds to wait between rebalances when cache autotune is enabled.,float,5,dynamic
+osd_memory_target,Memory,"When tcmalloc and cache autotuning is enabled, try to keep this many bytes mapped in memory.",size,4096Mi,>896Mi
+bluestore_cache_meta_ratio,Memory,Ratio of bluestore cache to devote to metadata,float,0.45,dynamic
+bluestore_cache_kv_ratio,Memory,Ratio of bluestore cache to devote to key/value database (RocksDB),float,0.45,dynamic
+ms_tcp_rcvbuf,Network,The size of the socket buffer on the receiving end of a network connection. Disable by default.,size,0,dynamic
+ms_type,Network,"Transport type used by Async Messenger. Can be async+posix, async+dpdk or async+rdma",str,async+posix,"async+posix, async+dpdk, async+rdma"
+ms_async_rdma_send_buffers,Network,How many work requestes for rdma send queue.,int,1024,dynamic
+objecter_tick_interval,Scheduling,None ,float,5,dynamic
+osd_loop_before_reset_tphandle,Scheduling,Max number of loop before we reset threadpool’s handle,int,64,dynamic
+osd_op_pq_min_cost,Scheduling,"OSD 操作优先级队列（Priority Queue, PQ）的最小消耗成本，影响 OSD 处理 I/O 操作时的任务调度策略",int,65536,dynamic
+osd_agent_delay_time,Scheduling,控制 OSD 代理任务（Agent Task）的延迟时间，即 OSD 在执行某些后台任务（如数据恢复、数据迁移、心跳检查）时的最小延迟时间,float,5,dynamic
+osd_agent_max_ops,Scheduling,控制 OSD 代理任务（Agent Tasks）每次最多可以执行的操作数（operations），即 限制 OSD 处理后台任务（如数据恢复、数据迁移、心跳检测）的最大并发数量,int,4,dynamic
+osd_pool_default_size,Storage,Sets the number of replicas for objects in the pool.,uint,3,"[0,10]"
+osd_pool_default_pg_num,Storage,The default number of placement groups for a pool.,uint,32,dynamic
+osd_pool_default_pg_autoscale_mode,Storage,Default PG autoscaling behavior for new pools,str,on,"on, off, warn"
+bluefs_alloc_size,Storage,BlueFS instance of allocator is initialized with bluefs alloc size,size,1Mi,dynamic
+osd_max_pgls,Storage,Maximum number of placement groups to list.,int,1024,dynamic
+osd_max_omap_entries_per_request,Storage,The max omap size for a single request.,size,1024Mi,dynamic
+journaler_write_head_interval,Storage,Interval in seconds between journal header updates (to help bound replay time),int,15,dynamic
