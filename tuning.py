@@ -1,7 +1,9 @@
+import subprocess
 import csv
 import ast
 import math
 import random
+import re
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LassoCV
@@ -302,10 +304,28 @@ class CephBayesianOptimizer:
 
 def run_ceph_benchmark(config: Dict[str, Union[str, int, float]]) -> float:
     """
-    运行 Ceph 性能评估基准测试，返回性能指标值（如 IOPS、延迟等）
+    运行 Ceph 性能评估基准测试，返回 I/O 吞吐量（MB/s）。
     """
-    # Placeholder for actual benchmarking code
-    return random.uniform(0, 1000)
+    try:
+        result = subprocess.run(
+            ["sudo", "filebench", "-f", "mywebserver.f"],
+            text=True,
+            capture_output=True,
+            check=True,
+            cwd="/home/ubuntu/Desktop/workspace/py/fbench_test"
+        )
+        
+        for line in result.stdout.split("\n"):
+            match = re.search(r'IO Summary: .* ([\d.]+)mb/s', line)
+            if match:
+                return float(match.group(1))
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error running filebench: {e}")
+    except ValueError as e:
+        print(f"Error parsing throughput: {e}")
+    
+    return 0.0
 
 
 params = CephParameterParser.parse_csv("ceph-configs.csv")
