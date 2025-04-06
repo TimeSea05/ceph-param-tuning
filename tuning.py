@@ -13,10 +13,9 @@ from skopt.utils import use_named_args
 from typing import List, Union, Dict
 
 class CephParameter:
-    def __init__(self, name: str, category: str, description: str, param_type: str,
+    def __init__(self, name: str, description: str, param_type: str,
                  default_value: Union[str, float, int, bool], constraint: Union[str, List[Union[str, int, float]]]):
         self.name = name
-        self.category = category
         self.description = description
         self.param_type = param_type
         self.default_value = self._convert_value(default_value, param_type)
@@ -29,7 +28,7 @@ class CephParameter:
             return str(value).strip()
         elif param_type == "float":
             return float(value)
-        elif param_type in ["int", "uint"]:
+        elif param_type == "int":
             return int(value)
         elif param_type == "bool":
             return value if isinstance(value, bool) else value.lower() == "true"
@@ -43,25 +42,17 @@ class CephParameter:
     def _parse_size(self, size_str: str):
         size_units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
 
-        if isinstance(size_str, (int, float)):
-            return int(size_str)
-        if str(size_str).strip() == "0":
-            return 0, "M"
-
         for unit in size_units:
             if size_str.endswith(unit + "i"):
                 return int(size_str[:-2]), unit
         
         raise ValueError(f"Invalid size format: {size_str}")
     
-    def _parse_constraint(self, constraint: str, param_type: str):
-        if constraint.lower() == "dynamic":
-            return "dynamic"
-        
+    def _parse_constraint(self, constraint: str, param_type: str):        
         try:
             parsed_constraint = ast.literal_eval(constraint)
             if isinstance(parsed_constraint, list):
-                if param_type in ["int", "uint"] and len(parsed_constraint) == 2:
+                if param_type == "int" and len(parsed_constraint) == 2:
                     return (parsed_constraint[0], parsed_constraint[1])
                 elif param_type == "float" and len(parsed_constraint) == 2:
                     return (parsed_constraint[0], parsed_constraint[1])
@@ -71,12 +62,7 @@ class CephParameter:
         
         if param_type == "str":
             return [item.strip() for item in constraint.split(",")]
-        
-        if param_type == "size" and constraint.startswith(">"):
-            min_size, size_unit = self._parse_size(constraint[1:].strip())
-            self.size_unit = size_unit
-            return (min_size, self.default_value * 4)
-        
+                
         return constraint
 
     def process_categorical(self, value: str) -> Dict[str, int]:
@@ -95,7 +81,7 @@ class CephParameter:
         return self.default_value
     
     def __repr__(self):
-        return (f"CephParameter(name={self.name}, category={self.category}, param_type={self.param_type}, "
+        return (f"CephParameter(name={self.name}, param_type={self.param_type}, "
                 f"default_value={self.default_value}, normalized_value={self.normalized_value}, "
                 f"one_hot_encoding={self.one_hot_encoding})")
 
@@ -107,18 +93,19 @@ class CephParameterParser:
             reader = csv.reader(csvfile)
             next(reader)  # Skip header row
             for row in reader:
-                name, category, description, param_type, default_value, constraint = row
-                parameters.append(CephParameter(name, category, description, param_type, default_value, constraint))
+                name, description, param_type, default_value, constraint = row
+                parameters.append(CephParameter(name, description, param_type, default_value, constraint))
         return parameters
 
 def sample_configurations(parameters: List[CephParameter], n: int) -> List[Dict[str, Union[str, int, float]]]:
     sampled_configs = []
+    size_units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
 
     # 向sampled_config中添加默认配置
     default_config = {}
     for param in parameters:
         if param.param_type == "size":
-            default_config[param.name] = f"{param.default_value}{param.size_unit}"
+            default_config[param.name] = param.default_value * size_units[param.size_unit]
         else:
             default_config[param.name] = param.default_value
     sampled_configs.append(default_config)
@@ -133,25 +120,15 @@ def sample_configurations(parameters: List[CephParameter], n: int) -> List[Dict[
             elif param.param_type == "str":
                 config[param.name] = random.choice(param.constraint)
             # 如果参数是整数或者浮点数类型且存在限定范围，那么在限定范围内随机取值
-            elif isinstance(param.constraint, tuple):
+            elif isinstance(param.constraint, tuple) or isinstance(param.constraint, list):
                 lower = param.constraint[0]
                 upper = param.constraint[1]
-                if param.param_type in ["int", "uint", "size"]:
+                if param.param_type in ["int", "size"]:
                     config_val = random.randint(lower, upper)
                 else:
                     config_val = random.uniform(lower, upper)
                 if param.param_type == "size":
-                    config_val = f"{config_val}{param.size_unit}"
-                config[param.name] = config_val
-            # 如果参数是整数或者浮点数类型，且限定范围是dynamic，那么在默认值的1/4到4倍之间随机取值
-            elif param.constraint == "dynamic" and isinstance(param.default_value, (int, float)):
-                lower = max(1, param.default_value // 4)
-                upper = max(1, param.default_value * 4)
-                if lower == upper:
-                    upper = 16 * lower
-                config_val = random.randint(lower, upper) if param.param_type in ["int", "uint", "size"] else random.uniform(lower, upper)
-                if (param.param_type == "size"):
-                    config_val = f"{config_val}{param.size_unit}"
+                    config_val = config_val * size_units[param.size_unit]
                 config[param.name] = config_val
         sampled_configs.append(config)
     return sampled_configs
@@ -217,23 +194,18 @@ def extract_important_features(
     return important_features
 
 class CephBayesianOptimizer:
-    def __init__(self, parameters, objective_function):
+    def __init__(self, parameters, func):
+        size_units = {"K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
         self.parameters = parameters
-        self.objective_function = objective_function
+        self.run_bench = func
         self.space = []
         
         for param in parameters:
-            if param.param_type in ["int", "uint", "size"]:
-                lower, upper = param.constraint if isinstance(param.constraint, tuple) else (param.default_value // 4, param.default_value * 4)
-                # handle parameter ms_tcp_rcvbuf
-                if lower == upper and lower == 0:
-                    upper = 16
-                if param.default_value < 100:
-                    self.space.append(Real(lower, upper, name=param.name))
-                else:
-                    self.space.append(Real(math.log1p(lower), math.log1p(upper), name=param.name))
-            elif param.param_type == "float":
-                lower, upper = param.constraint if isinstance(param.constraint, tuple) else (param.default_value / 4, param.default_value * 4)
+            if param.param_type in ["int", "float", "size"]:
+                lower, upper = param.constraint
+                if param.param_type == "size":
+                    lower = lower * size_units[param.size_unit]
+                    upper = upper * size_units[param.size_unit]
                 if param.default_value < 100:
                     self.space.append(Real(lower, upper, name=param.name))
                 else:
@@ -243,20 +215,35 @@ class CephBayesianOptimizer:
             elif param.param_type == "str":
                 self.space.append(Categorical(param.constraint, name=param.name))
 
-    def process_initial_configs(self, x0: List[Dict[str, Union[str, int, float]]]):
+    def encode_configs_as_vectors(self, x0: List[Dict[str, Union[str, int, float]]]):
+        """
+        Converts a list of configuration dictionaries into a list of vectors, 
+        where each vector represents the values of the configuration parameters.
+
+        Example:
+            Input:
+            x0 = [
+                {"param1": 10, "param2": 20.5, "param3": "value1"},
+                {"param1": 5, "param2": 15.0, "param3": "value2"}
+            ]
+            Output:
+            [
+                [10, 20.5, "value1"],
+                [5, 15.0, "value2"]
+            ]
+        """
         processed_x0 = []
         for config in x0:
             vector = []
             for param_name, param_value in config.items():
-                if isinstance(param_value, dict):
-                    key = next(key for key, value in param_value.items() if value == 1)
-                    vector.append(key)
-                else:
-                    vector.append(param_value)
+                vector.append(param_value)
             processed_x0.append(vector)
         return processed_x0
 
-    def check_initial_configs(self, x0: List[List[Union[str, int, float]]]):
+    def validate_vectors(self, x0: List[List[Union[str, int, float]]]):
+        """
+        Validates configuration vectors against the defined parameter space.
+        """
         for config in x0:
             for i, value in enumerate(config):
                 if isinstance(self.space[i], Real):
@@ -270,65 +257,121 @@ class CephBayesianOptimizer:
                         raise ValueError(f"Initial configuration value {value} for parameter {self.space[i].name} is not in the allowed categories.")
 
     def optimize(self, n_calls=30, x0=None, y0=None):
+        # Step 1: 包装目标函数，适配 skopt 的输入格式
         @use_named_args(self.space)
-        def wrapped_objective(**params):
+        def run_bench_wrapper(**raw_params):
             processed_params = {}
             for param in self.parameters:
-                if param.name in params:
-                    if param.param_type in ["int", "uint", "size"]:
-                        processed_params[param.name] = round(math.expm1(params[param.name]))
-                    elif param.param_type == "float":
-                        processed_params[param.name] = math.expm1(params[param.name])
-                    elif param.param_type == "bool":
-                        processed_params[param.name] = bool(params[param.name])
-                    else:
-                        processed_params[param.name] = params[param.name]
-            return self.objective_function(processed_params)
+                value = raw_params.get(param.name)
+                if value is None:
+                    continue
 
-        x0 = self.process_initial_configs(x0) if x0 else None
-        if x0:
-            self.check_initial_configs(x0)
-        result = gp_minimize(wrapped_objective, self.space, n_calls=n_calls, x0=x0, y0=y0, random_state=42)
-
-        best_params = {dim.name: result.x[i] for i, dim in enumerate(self.space)}
-        for param in self.parameters:
-            if param.name in best_params:
-                if param.param_type in ["int", "uint", "size"]:
-                    best_params[param.name] = round(math.expm1(best_params[param.name]))
+                if param.param_type in ["int", "size"]:
+                    # 对数缩放过的值，需要还原
+                    processed_value = round(math.expm1(value)) if param.default_value > 100 else round(value)
                 elif param.param_type == "float":
-                    best_params[param.name] = math.expm1(best_params[param.name])
+                    processed_value = math.expm1(value) if param.default_value > 100 else value
                 elif param.param_type == "bool":
-                    best_params[param.name] = bool(best_params[param.name])
-        
+                    processed_value = bool(value)
+                else:
+                    processed_value = value
+
+                processed_params[param.name] = processed_value
+
+            result = self.run_bench(processed_params)
+            print(f"Processed Parameters: {processed_params}, Result: {result}")
+            return result
+
+        # Step 2: 初始样本点预处理（编码向量 + 验证合法性）
+        encoded_x0 = self.encode_configs_as_vectors(x0) if x0 else None
+        if encoded_x0:
+            self.validate_vectors(encoded_x0)
+
+        # Step 3: 执行贝叶斯优化
+        result = gp_minimize(
+            func=run_bench_wrapper,
+            dimensions=self.space,
+            n_calls=n_calls,
+            x0=encoded_x0,
+            y0=y0,
+            random_state=42
+        )
+
+        # Step 4: 解析最优参数并还原为原始格式
+        best_params_vector = result.x
+        best_params = {}
+
+        for i, param in enumerate(self.parameters):
+            value = best_params_vector[i]
+            if param.param_type in ["int", "size"]:
+                best_params[param.name] = round(math.expm1(value)) if param.default_value > 100 else round(value)
+            elif param.param_type == "float":
+                best_params[param.name] = math.expm1(value) if param.default_value > 100 else value
+            elif param.param_type == "bool":
+                best_params[param.name] = bool(value)
+            else:
+                best_params[param.name] = value
+
         return best_params, result.fun
 
+def set_cephfs_config(config: Dict[str, Union[str, int, float]]) -> None:
+    commands = []
+    for key, value in config.items():
+        commands.append(f"sudo ceph config set mds {key} {value}")
+    full_command = " && ".join(commands)
+    
+    try:
+        subprocess.run(full_command, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error setting Ceph configuration: {e}")
+
 def run_ceph_benchmark(config: Dict[str, Union[str, int, float]]) -> float:
-    """
-    运行 Ceph 性能评估基准测试，返回 I/O 吞吐量（MB/s）。
-    """
+    set_cephfs_config(config)
+    
+    weights = {
+        "Directory creation": 0.10,
+        "Directory stat": 0.15,
+        "Directory rename": 0.05,
+        "Directory removal": 0.10,
+        "File creation": 0.10,
+        "File stat": 0.20,
+        "File read": 0.10,
+        "File removal": 0.10,
+        "Tree creation": 0.07,
+        "Tree removal": 0.03,
+    }
+
     try:
         result = subprocess.run(
-            ["sudo", "filebench", "-f", "mywebserver.f"],
+            ["sudo", "mdtest", "-d", "/mnt/cephfs", "-b", "6", "-I", "8", "-z", "2"],
             text=True,
             capture_output=True,
-            check=True,
-            cwd="/home/ubuntu/Desktop/workspace/py/fbench_test"
+            check=True
         )
-        
-        for line in result.stdout.split("\n"):
-            match = re.search(r'IO Summary: .* ([\d.]+)mb/s', line)
+
+        op_pattern = re.compile(r"^\s*(.+?)\s+([\d.]+)\s+[\d.]+\s+([\d.]+)\s+[\d.]+")
+        total_score = 0.0
+        output_lines = result.stdout.split("\n")
+
+        for line in output_lines:
+            match = op_pattern.match(line)
             if match:
-                return float(match.group(1))
+                operation = match.group(1).strip()
+                mean_value = float(match.group(3))
+                if operation in weights:
+                    total_score += mean_value * weights[operation]
+
+        return total_score
 
     except subprocess.CalledProcessError as e:
-        print(f"Error running filebench: {e}")
-    except ValueError as e:
-        print(f"Error parsing throughput: {e}")
-    
+        print(f"Error running mdtest: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
     return 0.0
 
 
-params = CephParameterParser.parse_csv("ceph-configs.csv")
+params = CephParameterParser.parse_csv("mds-params.csv")
 
 N_SAMPLE_CONFIGS = 1
 sampled_configs = sample_configurations(params, N_SAMPLE_CONFIGS)

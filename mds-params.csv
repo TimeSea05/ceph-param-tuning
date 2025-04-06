@@ -1,0 +1,7 @@
+名称,标签,description,类型,默认值,可选值
+mds_cache_memory_limit,This sets a target maximum memory usage of the MDS cache and is the primary tunable to limit the MDS memory usage.,size,4096Mi,"[1024,16384]"
+mds_cache_reservation,"The cache reservation (memory or inodes) for the MDS cache to maintain. Once the MDS begins dipping into its reservation, it will recall client state until its cache size shrinks to restore the reservation.",float,0.05,"[0,1]"
+mds_dir_max_commit_size,The maximum size of a directory update before Ceph breaks it into smaller transactions (MB).,int,10,"[1,1024]"
+mds_client_prealloc_inos,The number of inode numbers to preallocate per client session.,int,1000,"[100, 10000]"
+mds_default_dir_hash,The function to use for hashing files across directory fragments.,int,2,"[0,3]"
+mds_bal_merge_size,The minimum directory size before Ceph tries to merge adjacent directory fragments.,int,50,"[1,10000]"
